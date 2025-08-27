@@ -26,11 +26,17 @@ async function searchAndGetTranscripts(query, maxResults = 10) {
     order: 'relevance',
   });
 
-  const videoIds = searchResponse.data.items.map(item => item.id.videoId);
-  if (videoIds.length === 0) {
+  const videos = searchResponse.data.items;
+  if (!videos || videos.length === 0) {
     console.log(`No videos found for query: "${query}"`);
     return ''; // Return empty string if no videos found
   }
+
+  // Log the titles of the videos we found
+  const videoTitles = videos.map(v => v.snippet.title);
+  console.log('Found video titles:', videoTitles);
+
+  const videoIds = videos.map(item => item.id.videoId);
 
   console.log(`Found ${videoIds.length} videos. Fetching transcripts...`);
   let allTranscripts = '';
@@ -39,8 +45,11 @@ async function searchAndGetTranscripts(query, maxResults = 10) {
       const transcript = await YoutubeTranscript.fetchTranscript(videoId);
       const transcriptText = transcript.map(t => t.text).join(' ');
       allTranscripts += transcriptText + '\n\n';
+      // Add a success log
+      console.log(`SUCCESS: Fetched transcript for video ${videoId}`);
     } catch (error) {
-      console.log(`Could not fetch transcript for video ${videoId}, skipping.`);
+      // Log the SPECIFIC error for this video
+      console.log(`INFO: Could not fetch transcript for video ${videoId}. Reason: ${error.message}`);
     }
   }
   return allTranscripts;
@@ -73,7 +82,8 @@ export default async function handler(request, response) {
 
     // If still no transcripts, then we can't proceed
     if (!transcripts) {
-      return response.status(500).json({ error: 'Could not fetch any transcripts for the destination after multiple attempts.' });
+      // This is the error you were seeing. Now we have more detailed logs to check why.
+      return response.status(500).json({ error: 'Could not fetch any transcripts for the found videos.' });
     }
 
     // --- STEP 3: Use Gemini with a more detailed prompt to create the itinerary ---
