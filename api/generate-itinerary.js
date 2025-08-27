@@ -15,7 +15,39 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 // Use the latest and most powerful Gemini 2.5 Pro model
 const model = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
 
-// This is our main serverless function
+// --- Helper function to search videos and get transcripts ---
+async function searchAndGetTranscripts(query, maxResults = 10) {
+  console.log(`Searching for videos with query: "${query}"`);
+  const searchResponse = await youtube.search.list({
+    part: 'snippet',
+    q: query,
+    type: 'video',
+    maxResults: maxResults,
+    order: 'relevance',
+  });
+
+  const videoIds = searchResponse.data.items.map(item => item.id.videoId);
+  if (videoIds.length === 0) {
+    console.log(`No videos found for query: "${query}"`);
+    return ''; // Return empty string if no videos found
+  }
+
+  console.log(`Found ${videoIds.length} videos. Fetching transcripts...`);
+  let allTranscripts = '';
+  for (const videoId of videoIds) {
+    try {
+      const transcript = await YoutubeTranscript.fetchTranscript(videoId);
+      const transcriptText = transcript.map(t => t.text).join(' ');
+      allTranscripts += transcriptText + '\n\n';
+    } catch (error) {
+      console.log(`Could not fetch transcript for video ${videoId}, skipping.`);
+    }
+  }
+  return allTranscripts;
+}
+
+
+// --- This is our main serverless function ---
 export default async function handler(request, response) {
   // Destructure all the new parameters from the request query
   const { destination, startLocation, duration, tripType, budget } = request.query;
@@ -28,41 +60,23 @@ export default async function handler(request, response) {
   }
 
   try {
-    // STEP 1: Find relevant YouTube videos using the new, more specific query
-    const searchQuery = `${duration} day ${tripType} trip to ${destination} from ${startLocation} travel guide`;
-    console.log(`Searching for videos with query: "${searchQuery}"`);
+    // --- STEP 1 & 2: Search and Get Transcripts (with fallback) ---
+    const specificSearchQuery = `${duration} day ${tripType} trip to ${destination} from ${startLocation} travel guide`;
+    let transcripts = await searchAndGetTranscripts(specificSearchQuery);
 
-    const searchResponse = await youtube.search.list({
-      part: 'snippet',
-      q: searchQuery,
-      type: 'video',
-      maxResults: 10,
-      order: 'relevance', // Use relevance for more specific queries
-    });
-
-    const videoIds = searchResponse.data.items.map(item => item.id.videoId);
-    if (videoIds.length === 0) {
-      return response.status(404).json({ error: 'Could not find any travel videos for that specific query.' });
+    // If the specific search yields no transcripts, try a broader search
+    if (!transcripts) {
+      console.log('Specific search failed. Trying a broader search...');
+      const broadSearchQuery = `${destination} travel guide`;
+      transcripts = await searchAndGetTranscripts(broadSearchQuery, 15); // Get a few more videos on the broad search
     }
 
-    // STEP 2: Get the transcript for each video
-    console.log(`Found ${videoIds.length} videos. Fetching transcripts...`);
-    let allTranscripts = '';
-    for (const videoId of videoIds) {
-      try {
-        const transcript = await YoutubeTranscript.fetchTranscript(videoId);
-        const transcriptText = transcript.map(t => t.text).join(' ');
-        allTranscripts += transcriptText + '\n\n';
-      } catch (error) {
-        console.log(`Could not fetch transcript for video ${videoId}, skipping.`);
-      }
+    // If still no transcripts, then we can't proceed
+    if (!transcripts) {
+      return response.status(500).json({ error: 'Could not fetch any transcripts for the destination after multiple attempts.' });
     }
 
-    if (allTranscripts.length === 0) {
-        return response.status(500).json({ error: 'Could not fetch any transcripts for the found videos.' });
-    }
-
-    // STEP 3: Use Gemini with a more detailed prompt to create the itinerary
+    // --- STEP 3: Use Gemini with a more detailed prompt to create the itinerary ---
     console.log('Sending transcripts and detailed constraints to Gemini...');
 
     const prompt = `
@@ -85,13 +99,13 @@ export default async function handler(request, response) {
 
       **Video Transcripts:**
       ---
-      ${allTranscripts}
+      ${transcripts}
     `;
 
     const result = await model.generateContent(prompt);
     const itinerary = result.response.text();
 
-    // STEP 4: Send the final itinerary back to the user
+    // --- STEP 4: Send the final itinerary back to the user ---
     console.log('Successfully generated itinerary!');
     response.status(200).json({ itinerary });
 
