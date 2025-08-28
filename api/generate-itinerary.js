@@ -1,6 +1,5 @@
 // Import necessary libraries
 import { google } from 'googleapis';
-import { YoutubeTranscript } from 'youtube-transcript';
 // Import the Google Generative AI library
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
@@ -12,11 +11,11 @@ const youtube = google.youtube({
 
 // Initialize the Google Generative AI client
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-// Use the latest and most powerful Gemini 2.5 Pro model
-const model = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
+// Use the Flash model, which is faster and has a more generous free tier for this task.
+const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-latest' });
 
-// --- Helper function to search videos and get transcripts ---
-async function searchAndGetTranscripts(query, maxResults = 10) {
+// --- Helper function to get video details ---
+async function getVideoDetails(query, maxResults = 15) {
   console.log(`Searching for videos with query: "${query}"`);
   const searchResponse = await youtube.search.list({
     part: 'snippet',
@@ -32,27 +31,16 @@ async function searchAndGetTranscripts(query, maxResults = 10) {
     return ''; // Return empty string if no videos found
   }
 
-  // Log the titles of the videos we found
-  const videoTitles = videos.map(v => v.snippet.title);
-  console.log('Found video titles:', videoTitles);
+  // Combine the title and description from each video
+  let combinedText = '';
+  videos.forEach(video => {
+    const title = video.snippet.title;
+    const description = video.snippet.description;
+    combinedText += `Video Title: ${title}\nVideo Description: ${description}\n\n---\n\n`;
+  });
 
-  const videoIds = videos.map(item => item.id.videoId);
-
-  console.log(`Found ${videoIds.length} videos. Fetching transcripts...`);
-  let allTranscripts = '';
-  for (const videoId of videoIds) {
-    try {
-      const transcript = await YoutubeTranscript.fetchTranscript(videoId);
-      const transcriptText = transcript.map(t => t.text).join(' ');
-      allTranscripts += transcriptText + '\n\n';
-      // Add a success log
-      console.log(`SUCCESS: Fetched transcript for video ${videoId}`);
-    } catch (error) {
-      // Log the SPECIFIC error for this video
-      console.log(`INFO: Could not fetch transcript for video ${videoId}. Reason: ${error.message}`);
-    }
-  }
-  return allTranscripts;
+  console.log(`SUCCESS: Gathered titles and descriptions for ${videos.length} videos.`);
+  return combinedText;
 }
 
 
@@ -69,28 +57,26 @@ export default async function handler(request, response) {
   }
 
   try {
-    // --- STEP 1 & 2: Search and Get Transcripts (with fallback) ---
-    const specificSearchQuery = `${duration} day ${tripType} trip to ${destination} from ${startLocation} travel guide`;
-    let transcripts = await searchAndGetTranscripts(specificSearchQuery);
+    // --- STEP 1: Search and Get Video Details ---
+    const searchQuery = `${duration} day ${tripType} trip to ${destination} travel guide`;
+    const videoData = await getVideoDetails(searchQuery, 25);
 
-    // If the specific search yields no transcripts, try a broader search
-    if (!transcripts) {
-      console.log('Specific search failed. Trying a broader search...');
-      const broadSearchQuery = `${destination} travel guide`;
-      transcripts = await searchAndGetTranscripts(broadSearchQuery, 15); // Get a few more videos on the broad search
+    if (!videoData) {
+      return response.status(500).json({ error: 'Could not find any relevant video data for the destination.' });
     }
 
-    // If still no transcripts, then we can't proceed
-    if (!transcripts) {
-      // This is the error you were seeing. Now we have more detailed logs to check why.
-      return response.status(500).json({ error: 'Could not fetch any transcripts for the found videos.' });
-    }
+    console.log(`Total length of video data to be sent to Gemini: ${videoData.length} characters.`);
+    // *** NEW LOGGING: Let's see a snippet of the actual data we collected ***
+    console.log('--- DATA SNIPPET ---');
+    console.log(videoData.substring(0, 500)); // Log the first 500 characters
+    console.log('--- END SNIPPET ---');
 
-    // --- STEP 3: Use Gemini with a more detailed prompt to create the itinerary ---
-    console.log('Sending transcripts and detailed constraints to Gemini...');
+
+    // --- STEP 2: Use Gemini with the new data source ---
+    console.log('Sending video titles and descriptions to Gemini...');
 
     const prompt = `
-      You are an expert travel agent. Your task is to create a detailed and practical travel itinerary based on the provided text from multiple YouTube video transcripts. You must adhere strictly to all the user's constraints.
+      You are an expert travel agent. Your task is to create a detailed and practical travel itinerary by analyzing the **titles and descriptions** of multiple YouTube videos. You must adhere strictly to all the user's constraints.
 
       **User's Trip Details:**
       - **Trip Origin:** ${startLocation}
@@ -100,27 +86,34 @@ export default async function handler(request, response) {
       - **Total Budget (approximate):** ${budget}
 
       **Your Task:**
-      1. Analyze the following travel video transcripts for '${destination}'.
-      2. Create a logical, day-by-day itinerary for a ${duration}-day trip.
-      3. The itinerary must match the **${tripType}** style. Prioritize activities, sights, and restaurants mentioned in the transcripts that fit this style.
-      4. Provide an estimated daily cost breakdown and ensure the total trip cost stays within the approximate budget of **${budget}**.
-      5. If the trip is international (e.g., from ${startLocation} to ${destination}), include a note about estimated travel time and potential flight costs, but focus the detailed itinerary on the destination itself.
-      6. Include any unique, practical tips mentioned by the video creators.
+      1. Analyze the following collection of YouTube video titles and descriptions for '${destination}'.
+      2. Identify the most frequently mentioned landmarks, activities, restaurants, and tips.
+      3. Create a logical, day-by-day itinerary for a ${duration}-day trip.
+      4. The itinerary must match the **${tripType}** style. Prioritize suggestions that fit this style.
+      5. Provide an estimated daily cost breakdown and ensure the total trip cost stays within the approximate budget of **${budget}**.
+      6. If the trip is international (e.g., from ${startLocation} to ${destination}), include a note about estimated travel time and potential flight costs, but focus the detailed itinerary on the destination itself.
 
-      **Video Transcripts:**
+      **Video Data (Titles and Descriptions):**
       ---
-      ${transcripts}
+      ${videoData}
     `;
 
     const result = await model.generateContent(prompt);
     const itinerary = result.response.text();
 
-    // --- STEP 4: Send the final itinerary back to the user ---
+    // --- STEP 3: Send the final itinerary back to the user ---
     console.log('Successfully generated itinerary!');
     response.status(200).json({ itinerary });
 
   } catch (error) {
-    console.error('An error occurred:', error);
-    response.status(500).json({ error: 'Failed to generate itinerary.' });
+    // Log the detailed error to the Vercel console for debugging
+    console.error('--- A CRITICAL ERROR OCCURRED ---');
+    console.error('Error Message:', error.message);
+    console.error('Full Error Object:', JSON.stringify(error, null, 2));
+
+    response.status(500).json({
+        error: 'Failed to generate itinerary due to an internal error.',
+        details: error.message
+    });
   }
 }
