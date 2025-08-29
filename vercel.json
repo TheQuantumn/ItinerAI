@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "api/generate-itinerary.js": {
+      "maxDuration": 30
+    }
+  }
+}
