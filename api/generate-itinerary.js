@@ -11,18 +11,11 @@ const youtube = google.youtube({
 
 // Initialize the Google Generative AI client
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-// Use the Flash model for speed and its generous free tier.
+// Use the Flash model, which is faster and has a more generous free tier for this task.
 const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-latest' });
 
-// This tells Vercel to use the Edge runtime, which is better for streaming,
-// and increases the timeout just in case.
-export const config = {
-  runtime: 'edge',
-  maxDuration: 60,
-};
-
 // --- Helper function to get video details ---
-async function getVideoDetails(query, maxResults = 5) { // Reduced to 5 for speed
+async function getVideoDetails(query, maxResults = 8) { // Using 8 videos is a good balance
   console.log(`Searching for videos with query: "${query}"`);
   const searchResponse = await youtube.search.list({
     part: 'snippet',
@@ -35,9 +28,10 @@ async function getVideoDetails(query, maxResults = 5) { // Reduced to 5 for spee
   const videos = searchResponse.data.items;
   if (!videos || videos.length === 0) {
     console.log(`No videos found for query: "${query}"`);
-    return '';
+    return ''; // Return empty string if no videos found
   }
 
+  // Combine the title and description from each video
   let combinedText = '';
   videos.forEach(video => {
     const title = video.snippet.title;
@@ -49,46 +43,45 @@ async function getVideoDetails(query, maxResults = 5) { // Reduced to 5 for spee
   return combinedText;
 }
 
-// --- Main Serverless Function (Now handles OPTIONS requests) ---
-export default async function handler(request) {
-  // --- THIS IS THE NEW CORS FIX ---
-  // Handle the preflight 'OPTIONS' request sent by browsers
+
+// --- This is our main serverless function (Node.js runtime) ---
+export default async function handler(request, response) {
+  // --- Add CORS Headers ---
+  response.setHeader('Access-Control-Allow-Credentials', true);
+  response.setHeader('Access-Control-Allow-Origin', '*'); // Or specify your Netlify domain
+  response.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
+  response.setHeader(
+    'Access-Control-Allow-Headers',
+    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
+  );
+
+  // --- Handle preflight 'OPTIONS' request ---
   if (request.method === 'OPTIONS') {
-    return new Response(null, {
-      status: 204, // No Content
-      headers: {
-        'Access-Control-Allow-Origin': '*', // Allow any origin
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-      },
-    });
+    response.status(200).end();
+    return;
   }
 
-  // Existing logic starts here
-  const { searchParams } = new URL(request.url);
-  const destination = searchParams.get('destination');
-  const startLocation = searchParams.get('startLocation');
-  const duration = searchParams.get('duration');
-  const tripType = searchParams.get('tripType');
-  const budget = searchParams.get('budget');
+  // Destructure all the new parameters from the request query
+  const { destination, startLocation, duration, tripType, budget } = request.query;
 
+  // Validate all the required inputs
   if (!destination || !startLocation || !duration || !tripType || !budget) {
-    return new Response(JSON.stringify({ error: 'Missing required parameters.' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+    return response.status(400).json({
+      error: 'Missing required parameters. Please provide destination, startLocation, duration, tripType, and budget.'
     });
   }
 
   try {
+    // --- STEP 1: Search and Get Video Details ---
     const searchQuery = `${duration} day ${tripType} trip to ${destination} travel guide`;
     const videoData = await getVideoDetails(searchQuery);
 
     if (!videoData) {
-      return new Response(JSON.stringify({ error: 'Could not find any relevant video data.' }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-      });
+      return response.status(500).json({ error: 'Could not find any relevant video data for the destination.' });
     }
+
+    // --- STEP 2: Use Gemini with the new data source ---
+    console.log('Sending video titles and descriptions to Gemini...');
 
     const prompt = `
       You are an expert travel agent. Your task is to create a detailed and practical travel itinerary by analyzing the **titles and descriptions** of multiple YouTube videos. You must adhere strictly to all the user's constraints.
@@ -107,35 +100,25 @@ export default async function handler(request) {
       4. The itinerary must match the **${tripType}** style. Prioritize suggestions that fit this style.
       5. Provide an estimated daily cost breakdown and ensure the total trip cost stays within the approximate budget of **${budget}**.
       6. If the trip is international (e.g., from ${startLocation} to ${destination}), include a note about estimated travel time and potential flight costs, but focus the detailed itinerary on the destination itself.
-      7. Format the output using Markdown.
 
       **Video Data (Titles and Descriptions):**
       ---
       ${videoData}
     `;
 
-    const stream = await model.generateContentStream(prompt);
+    const result = await model.generateContent(prompt);
+    const itinerary = result.response.text();
 
-    const transformStream = new TransformStream({
-      transform(chunk, controller) {
-        controller.enqueue(chunk.text());
-      },
-    });
-
-    const readableStream = stream.stream.pipeThrough(transformStream);
-
-    return new Response(readableStream, {
-      headers: {
-        'Content-Type': 'text/plain; charset=utf-8',
-        'Access-Control-Allow-Origin': '*', // Also include on the main response
-      },
-    });
+    // --- STEP 3: Send the final itinerary back to the user ---
+    console.log('Successfully generated itinerary!');
+    response.status(200).json({ itinerary });
 
   } catch (error) {
     console.error('--- A CRITICAL ERROR OCCURRED ---', error);
-    return new Response(JSON.stringify({ error: 'Failed to generate itinerary.', details: error.message }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+
+    response.status(500).json({
+        error: 'Failed to generate itinerary due to an internal error.',
+        details: error.message
     });
   }
 }
