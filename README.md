@@ -48,12 +48,15 @@ To run this project on your local machine, follow these steps:
 
 ### 1. Clone the Repository
 
-git clone https://github.com/TheQuantumn/ItinerAI.git cd ItinerAI
+`git clone https://github.com/TheQuantumn/ItinerAI.git 
+` 
+`cd ItinerAI
+`
 
 
 ### 2. Install Dependencies
 
-npm install
+`npm install`
 
 
 ### 3. Set Up Environment Variables
@@ -62,14 +65,14 @@ You will need API keys from **Google Cloud (for YouTube)** and **Google AI Studi
 
 Run the following command to pull the environment variables you've set on your Vercel project into a local file:
 
-npx vercel env pull
+`npx vercel env pull`
 
 
 > **Note:** This will create a `.env` file in your project root. Ensure this file is listed in your `.gitignore` for security!
 
 ### 4. Run the Development Server
 
-npx vercel dev
+`npx vercel dev`
 
 
 Your serverless function will now be running and accessible at `http://localhost:3000`. You can test it by constructing a URL with the required query parameters.
