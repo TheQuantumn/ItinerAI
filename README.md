@@ -21,7 +21,7 @@ This project is a multi-platform application, combining a frontend hosted on Net
 
 | Category | Technology | Purpose |
 | :--- | :--- | :--- |
-| **Frontend** | Builder.io, Netlify | UI/UX Design and Static Site Hosting |
+  | **Frontend** | React.js, Netlify | UI/UX Design and Static Site Hosting |
 | **Backend** | Node.js, Vercel Serverless Functions | Serverless logic and API orchestration |
 | **AI & Data APIs** | Google Gemini API, YouTube Data API v3 | Core data analysis and sourcing |
 | **Developer Tools** | Git, GitHub, Vercel CLI, npm | Version control and deployment |
