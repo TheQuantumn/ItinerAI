@@ -1,4 +1,4 @@
-<img width="960" height="540" alt="image" src="https://github.com/user-attachments/assets/9c7cde34-2fce-4a33-940e-f6964790c1c2" /># 🗺️ ItinerAI - AI-Powered Travel Planner
+# 🗺️ ItinerAI - AI-Powered Travel Planner
 
 ItinerAI is a smart travel planner that generates **personalized, day-by-day itineraries** by leveraging AI to analyze real-world travel data from YouTube. Instead of generic suggestions, it synthesizes information from the titles and descriptions of popular travel vlogs to create a plan that reflects **current trends and hidden gems**.
 
