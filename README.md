@@ -1,8 +1,12 @@
-# 🗺️ ItinerAI - AI-Powered Travel Planner
+<img width="960" height="540" alt="image" src="https://github.com/user-attachments/assets/9c7cde34-2fce-4a33-940e-f6964790c1c2" /># 🗺️ ItinerAI - AI-Powered Travel Planner
 
 ItinerAI is a smart travel planner that generates **personalized, day-by-day itineraries** by leveraging AI to analyze real-world travel data from YouTube. Instead of generic suggestions, it synthesizes information from the titles and descriptions of popular travel vlogs to create a plan that reflects **current trends and hidden gems**.
 
 This project consists of a modern frontend connected to a serverless backend that orchestrates calls to the **YouTube Data API** and **Google's Gemini API**.
+<img width="960" height="540" alt="image" src="https://github.com/user-attachments/assets/6219f2d5-ff4d-4e99-8cd7-191bb6a78d1d" />
+
+Live Demo : https://itinerai.netlify.app/
+
 
 ---
 
